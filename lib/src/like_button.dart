@@ -37,6 +37,7 @@ class LikeButton extends StatefulWidget {
     this.padding,
     this.countDecoration,
     this.postFrameCallback,
+    this.useOverlayAnimation = false,
   })  : bubblesSize = bubblesSize ?? size * 2.0,
         circleSize = circleSize ?? size * 0.8,
         super(key: key);
@@ -110,6 +111,10 @@ class LikeButton extends StatefulWidget {
   /// call back of first frame with LikeButtonState
   final Function(LikeButtonState state)? postFrameCallback;
 
+  /// wether or not the like animation should be shown inside a overlay.
+  /// this helps if the animation gets clipped by a parent widget.
+  final bool useOverlayAnimation;
+
   @override
   State<StatefulWidget> createState() => LikeButtonState();
 }
@@ -135,6 +140,10 @@ class LikeButtonState extends State<LikeButton> with TickerProviderStateMixin {
   bool? get isLiked => _isLiked;
   int? get likeCount => _likeCount;
   int? get preLikeCount => _preLikeCount;
+
+  final LayerLink _animationOverlaylayerLink = LayerLink();
+  OverlayEntry? _animationOverlayEntry;
+
   @override
   void initState() {
     super.initState();
@@ -187,6 +196,7 @@ class LikeButtonState extends State<LikeButton> with TickerProviderStateMixin {
   void dispose() {
     _controller!.dispose();
     _likeCountController!.dispose();
+    _animationOverlayEntry?.remove();
     super.dispose();
   }
 
@@ -205,60 +215,10 @@ class LikeButtonState extends State<LikeButton> with TickerProviderStateMixin {
     }
 
     List<Widget> children = <Widget>[
-      AnimatedBuilder(
-        animation: _controller!,
-        builder: (BuildContext c, Widget? w) {
-          final Widget likeWidget =
-              widget.likeBuilder?.call(_isLiked ?? true) ??
-                  defaultWidgetBuilder(_isLiked ?? true, widget.size);
-          return Stack(
-            clipBehavior: Clip.none,
-            children: <Widget>[
-              Positioned(
-                top: (widget.size - widget.bubblesSize) / 2.0,
-                left: (widget.size - widget.bubblesSize) / 2.0,
-                child: CustomPaint(
-                  size: Size(widget.bubblesSize, widget.bubblesSize),
-                  painter: BubblesPainter(
-                    currentProgress: _bubblesAnimation.value,
-                    color1: widget.bubblesColor.dotPrimaryColor,
-                    color2: widget.bubblesColor.dotSecondaryColor,
-                    color3: widget.bubblesColor.dotThirdColorReal,
-                    color4: widget.bubblesColor.dotLastColorReal,
-                  ),
-                ),
-              ),
-              Positioned(
-                top: (widget.size - widget.circleSize) / 2.0,
-                left: (widget.size - widget.circleSize) / 2.0,
-                child: CustomPaint(
-                  size: Size(widget.circleSize, widget.circleSize),
-                  painter: CirclePainter(
-                    innerCircleRadiusProgress: _innerCircleAnimation.value,
-                    outerCircleRadiusProgress: _outerCircleAnimation.value,
-                    circleColor: widget.circleColor,
-                  ),
-                ),
-              ),
-              Container(
-                width: widget.size,
-                height: widget.size,
-                alignment: Alignment.center,
-                child: Transform.scale(
-                  scale: ((_isLiked ?? true) && _controller!.isAnimating)
-                      ? _scaleAnimation.value
-                      : 1.0,
-                  child: SizedBox(
-                    child: likeWidget,
-                    height: widget.size,
-                    width: widget.size,
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+      if (widget.useOverlayAnimation)
+        _getLikeWidget()
+      else
+        _getLikeAnimationWidget(),
       likeCountWidget
     ];
 
@@ -290,6 +250,81 @@ class LikeButtonState extends State<LikeButton> with TickerProviderStateMixin {
       behavior: HitTestBehavior.translucent,
       onTap: onTap,
       child: result,
+    );
+  }
+
+  Widget _getLikeWidget() {
+    final Widget likeWidget = widget.likeBuilder?.call(_isLiked ?? true) ??
+        defaultWidgetBuilder(_isLiked ?? true, widget.size);
+
+    Widget content = AnimatedBuilder(
+      animation: controller!,
+      builder: (BuildContext context, Widget? child) {
+        return Container(
+          width: widget.size,
+          height: widget.size,
+          alignment: Alignment.center,
+          child: Transform.scale(
+            scale: ((_isLiked ?? true) && _controller!.isAnimating)
+                ? _scaleAnimation.value
+                : 1.0,
+            child: SizedBox(
+              child: likeWidget,
+              height: widget.size,
+              width: widget.size,
+            ),
+          ),
+        );
+      },
+    );
+
+    if (widget.useOverlayAnimation) {
+      content = CompositedTransformTarget(
+        link: _animationOverlaylayerLink,
+        child: content,
+      );
+    }
+
+    return content;
+  }
+
+  Widget _getLikeAnimationWidget() {
+    return AnimatedBuilder(
+      animation: _controller!,
+      builder: (BuildContext c, Widget? w) {
+        return Stack(
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            Positioned(
+              top: (widget.size - widget.bubblesSize) / 2.0,
+              left: (widget.size - widget.bubblesSize) / 2.0,
+              child: CustomPaint(
+                size: Size(widget.bubblesSize, widget.bubblesSize),
+                painter: BubblesPainter(
+                  currentProgress: _bubblesAnimation.value,
+                  color1: widget.bubblesColor.dotPrimaryColor,
+                  color2: widget.bubblesColor.dotSecondaryColor,
+                  color3: widget.bubblesColor.dotThirdColorReal,
+                  color4: widget.bubblesColor.dotLastColorReal,
+                ),
+              ),
+            ),
+            Positioned(
+              top: (widget.size - widget.circleSize) / 2.0,
+              left: (widget.size - widget.circleSize) / 2.0,
+              child: CustomPaint(
+                size: Size(widget.circleSize, widget.circleSize),
+                painter: CirclePainter(
+                  innerCircleRadiusProgress: _innerCircleAnimation.value,
+                  outerCircleRadiusProgress: _outerCircleAnimation.value,
+                  circleColor: widget.circleColor,
+                ),
+              ),
+            ),
+            if (!widget.useOverlayAnimation) _getLikeWidget(),
+          ],
+        );
+      },
     );
   }
 
@@ -427,6 +462,33 @@ class LikeButtonState extends State<LikeButton> with TickerProviderStateMixin {
     }
   }
 
+  void _insertAnimationOverlay() {
+    _animationOverlayEntry?.remove();
+
+    _animationOverlayEntry = OverlayEntry(
+      builder: (BuildContext context) {
+        return CompositedTransformFollower(
+          link: _animationOverlaylayerLink,
+          child: _getLikeAnimationWidget(),
+        );
+      },
+    );
+
+    controller?.addStatusListener(_removeOverlayAfterAnimation);
+
+    Overlay.of(context).insert(_animationOverlayEntry!);
+  }
+
+  void _removeOverlayAfterAnimation(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      _animationOverlayEntry?.remove();
+      _animationOverlayEntry = null;
+
+      // Remove status listener after the entry is removed.
+      controller?.removeStatusListener(_removeOverlayAfterAnimation);
+    }
+  }
+
   void _handleIsLikeChanged(bool? isLiked) {
     if (_isLiked == null) {
       if (_likeCount != null) {
@@ -434,6 +496,10 @@ class LikeButtonState extends State<LikeButton> with TickerProviderStateMixin {
         _likeCount = _likeCount! + 1;
       }
       if (mounted) {
+        if (widget.useOverlayAnimation) {
+          _insertAnimationOverlay();
+        }
+
         setState(() {
           _controller!.reset();
           _controller!.forward();
@@ -459,6 +525,10 @@ class LikeButtonState extends State<LikeButton> with TickerProviderStateMixin {
       _isLiked = isLiked;
 
       if (mounted) {
+        if (_isLiked! && widget.useOverlayAnimation) {
+          _insertAnimationOverlay();
+        }
+
         setState(() {
           if (_isLiked!) {
             _controller!.reset();
